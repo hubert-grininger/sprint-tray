@@ -1,0 +1,154 @@
+param(
+    [string]$Project = 'APPOBS',
+    [int]$RefreshMinutes = 60
+)
+
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+# Single instance: quit if another SprintTray (script or exe) is already running
+$createdNew = $false
+$mutex = New-Object System.Threading.Mutex($true, 'Local\SprintTray', [ref]$createdNew)
+if (-not $createdNew) { exit }
+
+$setupHelp = @"
+SprintTray needs the Atlassian CLI with PII redaction (acli-pii):
+
+1. Install acli-pii and make sure it is on your PATH
+   (default location: %USERPROFILE%\.local\bin\acli-pii.exe).
+2. Log in once in a terminal:
+     acli-pii jira auth login
+3. Check it works:
+     acli-pii jira sprint list --project $Project --state active
+
+Then right-click the tray icon and choose Refresh.
+"@
+
+function Get-ActiveSprint {
+    if (-not (Get-Command acli-pii -ErrorAction SilentlyContinue)) {
+        throw 'acli-pii not found - see Help'
+    }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'acli-pii'
+    $psi.Arguments = "jira sprint list --project $Project --state active --json"
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $out = $p.StandardOutput.ReadToEnd()
+    $err = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) {
+        $msg = ($err -replace '[^ -~]', '').Trim()
+        if ($msg -match 'auth|login|401|unauthori|credential|token') { $msg = "Not logged in to Jira ($msg)" }
+        throw "acli-pii failed: $msg"
+    }
+
+    # ForEach-Object unrolls the array (Windows PowerShell 5.1 emits it as one object)
+    $sprints = @($out | ConvertFrom-Json | ForEach-Object { $_ })
+    # Prefer real sprints ("... Sprint 351") over long-running planning buckets
+    $candidates = @($sprints | Where-Object { $_.name -match 'Sprint\s*\d+' })
+    if (-not $candidates) { $candidates = $sprints }
+    if (-not $candidates) { throw "No active sprint in $Project" }
+    $candidates | Sort-Object { [datetime]$_.startDate } -Descending | Select-Object -First 1
+}
+
+function New-TextIcon([string]$text, [System.Drawing.Color]$color, [double]$progress = -1) {
+    $bmp = New-Object System.Drawing.Bitmap 32, 32
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.Clear([System.Drawing.Color]::Transparent)
+    # Reserve room for the progress bar (6px + 3px gap) below the text
+    $barH = 6; $gap = 3
+    $availH = if ($progress -ge 0) { 32 - $barH - $gap } else { 32 }
+    # Scale the actual glyph outline so it fills the icon (aspect ratio kept)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $family = New-Object System.Drawing.FontFamily 'Segoe UI'
+    $path.AddString($text, $family, [int][System.Drawing.FontStyle]::Bold, 100, (New-Object System.Drawing.PointF 0, 0), [System.Drawing.StringFormat]::GenericTypographic)
+    $b = $path.GetBounds()
+    $scale = [math]::Min(32 / $b.Width, $availH / $b.Height)
+    $textH = $b.Height * $scale
+    $blockH = if ($progress -ge 0) { $textH + $gap + $barH } else { $textH }
+    $top = (32 - $blockH) / 2
+    $mx = New-Object System.Drawing.Drawing2D.Matrix
+    $mx.Translate((32 - $b.Width * $scale) / 2, $top)
+    $mx.Scale($scale, $scale)
+    $mx.Translate(-$b.X, -$b.Y)
+    $path.Transform($mx)
+    $brush = New-Object System.Drawing.SolidBrush $color
+    $g.FillPath($brush, $path)
+    if ($progress -ge 0) {
+        # Green = remaining (highlighted), red = elapsed part of the sprint
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
+        $barY = [int][math]::Round($top + $textH + $gap)
+        $track = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(30, 160, 60))
+        $g.FillRectangle($track, 0, $barY, 32, $barH)
+        $elapsed = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(200, 30, 30))
+        $g.FillRectangle($elapsed, 0, $barY, [int][math]::Round(32 * [math]::Min(1.0, $progress)), $barH)
+        $track.Dispose(); $elapsed.Dispose()
+    }
+    $g.Dispose(); $path.Dispose(); $family.Dispose(); $mx.Dispose(); $brush.Dispose()
+    $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    $bmp.Dispose()
+    $icon
+}
+
+$tray = New-Object System.Windows.Forms.NotifyIcon
+$tray.Visible = $true
+$script:sprintName = ''
+$script:lastError = ''
+
+function Show-Help {
+    $status = if ($script:lastError) { "Current problem:`n$($script:lastError)`n`n" } else { "Status: OK ($($script:sprintName))`n`n" }
+    [System.Windows.Forms.MessageBox]::Show($status + $setupHelp, 'SprintTray', 'OK',
+        $(if ($script:lastError) { 'Warning' } else { 'Information' })) | Out-Null
+}
+
+function Update-Tray {
+    try {
+        $s = Get-ActiveSprint
+        $script:sprintName = $s.name
+        $num = if ($s.name -match '(\d+)\D*$') { $Matches[1] } else { 'S' }
+        $start = ([datetime]$s.startDate).ToLocalTime()
+        $end = ([datetime]$s.endDate).ToLocalTime()
+        $progress = [math]::Max(0.0, [math]::Min(1.0, ((Get-Date) - $start).TotalSeconds / ($end - $start).TotalSeconds))
+        $days = [math]::Ceiling(($end - (Get-Date)).TotalDays)
+        $tip = "$($s.name) - ends $($end.ToString('ddd dd.MM.')) ($days d left, $([int]($progress * 100))%)"
+        $newIcon = New-TextIcon $num ([System.Drawing.Color]::FromArgb(0, 40, 120)) $progress
+        $script:lastError = ''
+    } catch {
+        $errText = $_.Exception.Message
+        $tip = "Sprint: $errText"
+        # Notify once per distinct problem; clicking the balloon opens the help
+        if ($errText -ne $script:lastError) {
+            $tray.ShowBalloonTip(10000, 'SprintTray: cannot read sprint', "$errText`nClick for setup help.", 'Warning')
+        }
+        $script:lastError = $errText
+        $newIcon = New-TextIcon '?' ([System.Drawing.Color]::FromArgb(190, 40, 40))
+    }
+    $old = $tray.Icon
+    $tray.Icon = $newIcon
+    $tray.Text = if ($tip.Length -gt 63) { $tip.Substring(0, 63) } else { $tip }
+    if ($old) { $old.Dispose() }
+}
+
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+$menu.Items.Add('Refresh', $null, { Update-Tray }) | Out-Null
+$menu.Items.Add('Copy sprint name', $null, {
+    if ($script:sprintName) { [System.Windows.Forms.Clipboard]::SetText($script:sprintName) }
+}) | Out-Null
+$menu.Items.Add('Help / status', $null, { Show-Help }) | Out-Null
+$menu.Items.Add('Exit', $null, {
+    $tray.Visible = $false; $tray.Dispose(); [System.Windows.Forms.Application]::Exit()
+}) | Out-Null
+$tray.ContextMenuStrip = $menu
+$tray.add_DoubleClick({ Update-Tray })
+$tray.add_BalloonTipClicked({ Show-Help })
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = $RefreshMinutes * 60 * 1000
+$timer.add_Tick({ Update-Tray })
+$timer.Start()
+
+Update-Tray
+[System.Windows.Forms.Application]::Run()
