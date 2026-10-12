@@ -13,6 +13,9 @@ There is also a macOS menu bar version in `mac/` (Swift, see `mac/README.md`, `m
 - `SprintTray.exe` — built from the `.ps1` with ps2exe. Git-ignored, rebuild after changes.
 - `README.md` — user-facing docs: requirements, usage, autostart, troubleshooting, build.
 - `mac/` — macOS port: `Sources/main.swift`, `Info.plist`, `build.sh` (universal app + dmg).
+  The dmg is not downloadable; users must build it locally (see `mac/README.md`).
+- `.github/workflows/release.yml` — CI: builds `SprintTray.exe` on Windows; on a `v*` tag
+  it publishes the exe as a GitHub Release. Manual runs upload the exe as an artifact.
 
 ## How it works
 
@@ -38,6 +41,9 @@ There is also a macOS menu bar version in `mac/` (Swift, see `mac/README.md`, `m
   light. Read on every refresh, so theme changes apply at the next refresh.
 - `Update-Tray` — the refresh path; builds the icon, sets tooltip, disposes the old icon.
 - `Show-Help` — status / setup message box.
+- `Set-AutoStart` — behind the "Start with Windows" checkbox in the tray menu. Creates or
+  removes `SprintTray.lnk` in the Startup folder. Targets the exe, or `wscript.exe` +
+  `SprintTray.vbs` when run as a script (detected via `$PSCommandPath`).
 
 ## Conventions
 
@@ -61,7 +67,19 @@ Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -S
   `[System.Management.Automation.Language.Parser]::ParseFile(...)`.
 - Run from source for quick testing: `SprintTray.vbs` (no build needed).
 - There are no automated tests; verify by running the app and checking the icon, tooltip,
-  error path (e.g. rename `acli-pii` off PATH → red `?`), and the Help message.
+  error path (e.g. rename `acli-pii` off PATH → red `?`), the Help message, and the
+  "Start with Windows" toggle (it changes `SprintTray.lnk` in the Startup folder).
+
+## Release
+
+- Releases are built by `.github/workflows/release.yml`. Push a tag `vX.Y.Z` on `main`
+  (e.g. `git tag -a v1.0.1 -m "..." && git push origin v1.0.1`). The workflow builds the exe
+  and creates the GitHub Release with it attached and auto-generated notes.
+- The dmg was dropped from the workflow because it doesn't work. Don't add it back without
+  checking it first.
+- Don't move or re-push a tag that already has a published release. Use a new version
+  instead. Note: `v1.0.0` still has the old `SprintTray.dmg` attached.
+- The workflow only runs on tags or manual dispatch, not on every push.
 
 ## Gotchas
 
@@ -71,4 +89,6 @@ Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -S
   is stopped.
 - Error messages are built from acli-pii's stderr with non-ASCII stripped; keep the
   `auth|login|401|...` matching in `Get-ActiveSprint` in sync with what acli-pii prints.
-- Git: `main` is the default branch; the exe and `mac/build/` are ignored.
+- Git: `main` is the default branch; the exe and `mac/build/` are ignored. Changes go through
+  a branch and PR. Git warns that LF will become CRLF on touched files; that warning is
+  harmless.
