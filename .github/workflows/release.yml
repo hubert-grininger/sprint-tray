@@ -55,6 +55,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      # --generate-notes needs the git history, so check out the repo first
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
