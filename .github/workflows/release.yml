@@ -1,8 +1,8 @@
 name: Build and release
 
-# Builds SprintTray.exe (Windows) and SprintTray.dmg (macOS).
-# - Push a tag like v1.2.0 to build both and attach them to a GitHub Release.
-# - Run manually from the Actions tab to build without a release (downloadable artifacts).
+# Builds SprintTray.exe (Windows).
+# - Push a tag like v1.2.0 to build it and attach it to a GitHub Release.
+# - Run manually from the Actions tab to build without a release (downloadable artifact).
 
 on:
   push:
@@ -34,23 +34,9 @@ jobs:
           path: SprintTray.exe
           if-no-files-found: error
 
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build app and dmg
-        run: bash mac/build.sh
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SprintTray-dmg
-          path: mac/build/SprintTray.dmg
-          if-no-files-found: error
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, macos]
+    needs: [windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,5 +52,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" SprintTray.exe SprintTray.dmg \
+          gh release create "$GITHUB_REF_NAME" SprintTray.exe \
             --title "SprintTray $GITHUB_REF_NAME" --generate-notes
