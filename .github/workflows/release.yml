@@ -1,0 +1,67 @@
+name: Build and release
+
+# Builds SprintTray.exe (Windows) and SprintTray.dmg (macOS).
+# - Push a tag like v1.2.0 to build both and attach them to a GitHub Release.
+# - Run manually from the Actions tab to build without a release (downloadable artifacts).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ps2exe
+        shell: pwsh
+        run: Install-Module ps2exe -Scope CurrentUser -Force
+
+      - name: Build exe
+        shell: pwsh
+        run: |
+          Import-Module ps2exe
+          Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SprintTray-exe
+          path: SprintTray.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app and dmg
+        run: bash mac/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SprintTray-dmg
+          path: mac/build/SprintTray.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" SprintTray.exe SprintTray.dmg \
+            --title "SprintTray $GITHUB_REF_NAME" --generate-notes
