@@ -104,6 +104,12 @@ function Show-Help {
         $(if ($script:lastError) { 'Warning' } else { 'Information' })) | Out-Null
 }
 
+function Get-TextColor {
+    # Taskbar follows SystemUsesLightTheme: 0 = dark taskbar, so the text must be light
+    $light = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name SystemUsesLightTheme -ErrorAction SilentlyContinue).SystemUsesLightTheme
+    if ($light -eq 0) { [System.Drawing.Color]::White } else { [System.Drawing.Color]::FromArgb(0, 40, 120) }
+}
+
 function Update-Tray {
     try {
         $s = Get-ActiveSprint
@@ -114,7 +120,7 @@ function Update-Tray {
         $progress = [math]::Max(0.0, [math]::Min(1.0, ((Get-Date) - $start).TotalSeconds / ($end - $start).TotalSeconds))
         $days = [math]::Ceiling(($end - (Get-Date)).TotalDays)
         $tip = "$($s.name) - ends $($end.ToString('ddd dd.MM.')) ($days d left, $([int]($progress * 100))%)"
-        $newIcon = New-TextIcon $num ([System.Drawing.Color]::FromArgb(0, 40, 120)) $progress
+        $newIcon = New-TextIcon $num (Get-TextColor) $progress
         $script:lastError = ''
     } catch {
         $errText = $_.Exception.Message
