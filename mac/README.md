@@ -3,6 +3,16 @@
 Shows the current Jira sprint number in the menu bar, with a progress line underneath
 (green = time left in the sprint, red = elapsed).
 
+> **Build the dmg first.** There is no prebuilt download for macOS. On a Mac with Xcode
+> Command Line Tools (`xcode-select --install`), run this in the `mac` folder:
+>
+> ```
+> bash build.sh
+> ```
+>
+> It produces `build/SprintTray.dmg` (universal: Apple Silicon + Intel). Then follow
+> [Install](#install) below.
+
 ## Requirements
 
 - macOS 13 (Ventura) or newer
@@ -52,13 +62,3 @@ A red **?** means the sprint could not be read; a dialog shows the reason and th
 | `acli-pii not found` | Install acli-pii in one of the locations above, then Refresh |
 | `Not logged in to Jira` | Run `acli-pii jira auth login`, then Refresh |
 | `no open sprint found` | Check the project key (`defaults write ... project`) |
-
-## Building
-
-On a Mac with Xcode Command Line Tools (`xcode-select --install`):
-
-```
-bash build.sh
-```
-
-Produces `build/SprintTray.app` and `build/SprintTray.dmg` (universal: Apple Silicon + Intel).
