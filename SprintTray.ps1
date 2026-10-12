@@ -138,12 +138,40 @@ function Update-Tray {
     if ($old) { $old.Dispose() }
 }
 
+$autoStartLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'SprintTray.lnk'
+
+function Set-AutoStart([bool]$on) {
+    if (-not $on) { if (Test-Path $autoStartLnk) { Remove-Item $autoStartLnk }; return }
+    # Running as the exe: point at ourselves. Running as a script: launch it through the .vbs
+    $self = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($autoStartLnk)
+    if ($PSCommandPath) {
+        $lnk.TargetPath = 'wscript.exe'
+        $lnk.Arguments = "`"$(Join-Path $PSScriptRoot 'SprintTray.vbs')`""
+        $lnk.WorkingDirectory = $PSScriptRoot
+    } else {
+        $lnk.TargetPath = $self
+        $lnk.WorkingDirectory = Split-Path $self
+    }
+    $lnk.Save()
+}
+
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.Items.Add('Refresh', $null, { Update-Tray }) | Out-Null
 $menu.Items.Add('Copy sprint name', $null, {
     if ($script:sprintName) { [System.Windows.Forms.Clipboard]::SetText($script:sprintName) }
 }) | Out-Null
 $menu.Items.Add('Help / status', $null, { Show-Help }) | Out-Null
+$autoItem = New-Object System.Windows.Forms.ToolStripMenuItem 'Start with Windows'
+$autoItem.CheckOnClick = $true
+$autoItem.Checked = Test-Path $autoStartLnk
+$autoItem.add_Click({
+    try { Set-AutoStart $this.Checked } catch {
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'SprintTray') | Out-Null
+        $this.Checked = Test-Path $autoStartLnk
+    }
+})
+$menu.Items.Add($autoItem) | Out-Null
 $menu.Items.Add('Exit', $null, {
     $tray.Visible = $false; $tray.Dispose(); [System.Windows.Forms.Application]::Exit()
 }) | Out-Null
