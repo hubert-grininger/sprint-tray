@@ -104,6 +104,12 @@ function Show-Help {
         $(if ($script:lastError) { 'Warning' } else { 'Information' })) | Out-Null
 }
 
+function Get-TextColor {
+    # Taskbar follows SystemUsesLightTheme: 0 = dark taskbar, so the text must be light
+    $light = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name SystemUsesLightTheme -ErrorAction SilentlyContinue).SystemUsesLightTheme
+    if ($light -eq 0) { [System.Drawing.Color]::White } else { [System.Drawing.Color]::FromArgb(0, 40, 120) }
+}
+
 function Update-Tray {
     try {
         $s = Get-ActiveSprint
@@ -114,7 +120,7 @@ function Update-Tray {
         $progress = [math]::Max(0.0, [math]::Min(1.0, ((Get-Date) - $start).TotalSeconds / ($end - $start).TotalSeconds))
         $days = [math]::Ceiling(($end - (Get-Date)).TotalDays)
         $tip = "$($s.name) - ends $($end.ToString('ddd dd.MM.')) ($days d left, $([int]($progress * 100))%)"
-        $newIcon = New-TextIcon $num ([System.Drawing.Color]::FromArgb(0, 40, 120)) $progress
+        $newIcon = New-TextIcon $num (Get-TextColor) $progress
         $script:lastError = ''
     } catch {
         $errText = $_.Exception.Message
@@ -132,12 +138,40 @@ function Update-Tray {
     if ($old) { $old.Dispose() }
 }
 
+$autoStartLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'SprintTray.lnk'
+
+function Set-AutoStart([bool]$on) {
+    if (-not $on) { if (Test-Path $autoStartLnk) { Remove-Item $autoStartLnk }; return }
+    # Running as the exe: point at ourselves. Running as a script: launch it through the .vbs
+    $self = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($autoStartLnk)
+    if ($PSCommandPath) {
+        $lnk.TargetPath = 'wscript.exe'
+        $lnk.Arguments = "`"$(Join-Path $PSScriptRoot 'SprintTray.vbs')`""
+        $lnk.WorkingDirectory = $PSScriptRoot
+    } else {
+        $lnk.TargetPath = $self
+        $lnk.WorkingDirectory = Split-Path $self
+    }
+    $lnk.Save()
+}
+
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.Items.Add('Refresh', $null, { Update-Tray }) | Out-Null
 $menu.Items.Add('Copy sprint name', $null, {
     if ($script:sprintName) { [System.Windows.Forms.Clipboard]::SetText($script:sprintName) }
 }) | Out-Null
 $menu.Items.Add('Help / status', $null, { Show-Help }) | Out-Null
+$autoItem = New-Object System.Windows.Forms.ToolStripMenuItem 'Start with Windows'
+$autoItem.CheckOnClick = $true
+$autoItem.Checked = Test-Path $autoStartLnk
+$autoItem.add_Click({
+    try { Set-AutoStart $this.Checked } catch {
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'SprintTray') | Out-Null
+        $this.Checked = Test-Path $autoStartLnk
+    }
+})
+$menu.Items.Add($autoItem) | Out-Null
 $menu.Items.Add('Exit', $null, {
     $tray.Visible = $false; $tray.Dispose(); [System.Windows.Forms.Application]::Exit()
 }) | Out-Null
