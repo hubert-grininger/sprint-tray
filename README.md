@@ -55,6 +55,7 @@ clicking it (or right-click → **Help / status**) shows the details and setup s
 | `acli-pii not found` | Install acli-pii and make sure it is on your `PATH`, then Refresh |
 | `Not logged in to Jira` | Run `acli-pii jira auth login`, then Refresh |
 | `no open sprint found` | Check the project key (`-Project`) |
+| acli-pii failed. Error: unnown flag: --project | Update acli-pii to the latest version, then Refresh |
 
 ## Building the exe
 
