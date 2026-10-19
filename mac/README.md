@@ -62,3 +62,4 @@ A red **?** means the sprint could not be read; a dialog shows the reason and th
 | `acli-pii not found` | Install acli-pii in one of the locations above, then Refresh |
 | `Not logged in to Jira` | Run `acli-pii jira auth login`, then Refresh |
 | `no open sprint found` | Check the project key (`defaults write ... project`) |
+| `acli-pii failed. Error: unnown flag: --project`| Update acli-pii to the latest version, then Refresh | 
