@@ -28,7 +28,10 @@ There is also a macOS menu bar version in `mac/` (Swift, see `mac/README.md`, `m
 - Errors: a red `?` icon is shown, plus a balloon tip once per distinct error. The "Help /
   status" menu item shows the message and setup steps (`$setupHelp`).
 - Single instance via the named mutex `Local\SprintTray`; a second start exits immediately.
-- Parameters: `-Project` (default `APPOBS`), `-RefreshMinutes` (default `60`).
+- Parameters: `-Project` (default `APPOBS`), `-RefreshMinutes` (default `1440`, once a day).
+- Last good sprint is cached in `%LOCALAPPDATA%\SprintTray\last-sprint.json` (per project).
+  When a refresh fails, the icon shows the cached sprint in grey with "(cached)" in the tooltip.
+  The red `?` only appears when there is no cached sprint.
 
 ## Key functions in `SprintTray.ps1`
 

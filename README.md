@@ -36,10 +36,10 @@ to keep it visible.
 Options:
 
 ```
-SprintTray.exe -Project APPOBS -RefreshMinutes 60
+SprintTray.exe -Project APPOBS -RefreshMinutes 1440
 ```
 
-Defaults: project `APPOBS`, refresh every 60 minutes.
+Defaults: project `APPOBS`, refresh once a day (1440 minutes). Right-click → Refresh any time.
 
 ## Autostart
 
@@ -47,8 +47,10 @@ Put a shortcut to `SprintTray.exe` into your Startup folder (Win+R → `shell:st
 
 ## Troubleshooting
 
-A red **?** icon means the sprint could not be read. A notification pops up with the reason;
-clicking it (or right-click → **Help / status**) shows the details and setup steps.
+If a refresh fails, the icon keeps showing the last sprint that loaded, in grey, with
+"(cached)" in the tooltip. A notification pops up with the reason; clicking it (or right-click →
+**Help / status**) shows the details and setup steps. A red **?** icon only appears when no sprint
+has ever loaded on this PC.
 
 | Message | Fix |
 |---|---|

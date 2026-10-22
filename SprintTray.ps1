@@ -1,6 +1,6 @@
 param(
     [string]$Project = 'APPOBS',
-    [int]$RefreshMinutes = 60
+    [int]$RefreshMinutes = 1440
 )
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -35,9 +35,16 @@ function Get-ActiveSprint {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $p = [System.Diagnostics.Process]::Start($psi)
-    $out = $p.StandardOutput.ReadToEnd()
-    $err = $p.StandardError.ReadToEnd()
-    $p.WaitForExit()
+    # Read asynchronously so a hung acli-pii cannot block the UI thread on ReadToEnd
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit(60000)) {
+        $p.Kill()
+        throw 'acli-pii timed out (no answer from Jira within 60 s)'
+    }
+    $p.WaitForExit()  # second call flushes the async readers
+    $out = $outTask.Result
+    $err = $errTask.Result
     if ($p.ExitCode -ne 0) {
         $msg = ($err -replace '[^ -~]', '').Trim()
         if ($msg -match 'auth|login|401|unauthori|credential|token') { $msg = "Not logged in to Jira ($msg)" }
@@ -51,6 +58,25 @@ function Get-ActiveSprint {
     if (-not $candidates) { $candidates = $sprints }
     if (-not $candidates) { throw "No active sprint in $Project" }
     $candidates | Sort-Object { [datetime]$_.startDate } -Descending | Select-Object -First 1
+}
+
+# Last sprint that loaded successfully, kept on disk so the icon still works after a restart
+$cacheFile = Join-Path (Join-Path $env:LOCALAPPDATA 'SprintTray') 'last-sprint.json'
+
+function Get-LastSprint {
+    try {
+        $c = Get-Content -Path $cacheFile -Raw | ConvertFrom-Json
+        if ($c.project -eq $Project) { return $c }
+    } catch {}  # missing or corrupt cache is not an error; start without a fallback
+    $null
+}
+
+function Save-LastSprint($s) {
+    $script:lastGood = [pscustomobject]@{ project = $Project; name = $s.name; startDate = $s.startDate; endDate = $s.endDate }
+    try {
+        New-Item -ItemType Directory -Force -Path (Split-Path $cacheFile) | Out-Null
+        $script:lastGood | ConvertTo-Json | Set-Content -Path $cacheFile -Encoding UTF8
+    } catch {}  # best effort: the in-memory copy still covers this session
 }
 
 function New-TextIcon([string]$text, [System.Drawing.Color]$color, [double]$progress = -1) {
@@ -97,9 +123,13 @@ $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Visible = $true
 $script:sprintName = ''
 $script:lastError = ''
+$script:lastGood = $null
 
 function Show-Help {
-    $status = if ($script:lastError) { "Current problem:`n$($script:lastError)`n`n" } else { "Status: OK ($($script:sprintName))`n`n" }
+    $status = if ($script:lastError) {
+        $cached = if ($script:lastGood) { "Showing the last known sprint: $($script:lastGood.name)`n`n" } else { '' }
+        "Current problem:`n$($script:lastError)`n`n$cached"
+    } else { "Status: OK ($($script:sprintName))`n`n" }
     [System.Windows.Forms.MessageBox]::Show($status + $setupHelp, 'SprintTray', 'OK',
         $(if ($script:lastError) { 'Warning' } else { 'Information' })) | Out-Null
 }
@@ -111,25 +141,39 @@ function Get-TextColor {
 }
 
 function Update-Tray {
+    $s = $null
     try {
         $s = Get-ActiveSprint
+        Save-LastSprint $s
+        $script:lastError = ''
+    } catch {
+        $errText = $_.Exception.Message
+        # Notify once per distinct problem; clicking the balloon opens the help
+        if ($errText -ne $script:lastError) {
+            $hint = if ($script:lastGood) { 'Showing the last known sprint.' } else { 'Click for setup help.' }
+            $tray.ShowBalloonTip(10000, 'SprintTray: cannot read sprint', "$errText`n$hint", 'Warning')
+        }
+        $script:lastError = $errText
+        # Fall back to the last sprint that loaded (null on a first run with no cache)
+        $s = $script:lastGood
+    }
+    try {
+        if (-not $s) { throw $script:lastError }
+        $stale = [bool]$script:lastError
         $script:sprintName = $s.name
         $num = if ($s.name -match '(\d+)\D*$') { $Matches[1] } else { 'S' }
         $start = ([datetime]$s.startDate).ToLocalTime()
         $end = ([datetime]$s.endDate).ToLocalTime()
+        # Progress is computed from the clock, so the bar keeps moving while Jira is unreachable
         $progress = [math]::Max(0.0, [math]::Min(1.0, ((Get-Date) - $start).TotalSeconds / ($end - $start).TotalSeconds))
         $days = [math]::Ceiling(($end - (Get-Date)).TotalDays)
-        $tip = "$($s.name) - ends $($end.ToString('ddd dd.MM.')) ($days d left, $([int]($progress * 100))%)"
-        $newIcon = New-TextIcon $num (Get-TextColor) $progress
-        $script:lastError = ''
+        $label = if ($stale) { "$($s.name) (cached)" } else { $s.name }
+        $tip = "$label - ends $($end.ToString('ddd dd.MM.')) ($days d left, $([int]($progress * 100))%)"
+        # Grey glyph marks data that is not from the latest successful call
+        $color = if ($stale) { [System.Drawing.Color]::FromArgb(128, 128, 128) } else { Get-TextColor }
+        $newIcon = New-TextIcon $num $color $progress
     } catch {
-        $errText = $_.Exception.Message
-        $tip = "Sprint: $errText"
-        # Notify once per distinct problem; clicking the balloon opens the help
-        if ($errText -ne $script:lastError) {
-            $tray.ShowBalloonTip(10000, 'SprintTray: cannot read sprint', "$errText`nClick for setup help.", 'Warning')
-        }
-        $script:lastError = $errText
+        $tip = "Sprint: $($_.Exception.Message)"
         $newIcon = New-TextIcon '?' ([System.Drawing.Color]::FromArgb(190, 40, 40))
     }
     $old = $tray.Icon
@@ -184,5 +228,6 @@ $timer.Interval = $RefreshMinutes * 60 * 1000
 $timer.add_Tick({ Update-Tray })
 $timer.Start()
 
+$script:lastGood = Get-LastSprint
 Update-Tray
 [System.Windows.Forms.Application]::Run()
