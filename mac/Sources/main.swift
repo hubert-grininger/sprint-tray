@@ -5,6 +5,8 @@ import AppKit
 import ServiceManagement
 
 let bundleID = "com.dynatrace.sprinttray"
+// Set in mac/Info.plist (CFBundleShortVersionString), so the app and the plist can't drift
+let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
 
 struct Sprint: Codable {
     let name: String
@@ -175,6 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .filter { $0 != NSRunningApplication.current }
         if !others.isEmpty { NSApp.terminate(nil); return }
 
+        // Greyed-out header so the running version is visible without opening Help
+        let versionItem = NSMenuItem(title: "SprintTray \(appVersion)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+        menu.addItem(.separator())
         infoItem.isEnabled = false
         menu.addItem(infoItem)
         menu.addItem(.separator())
@@ -251,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showHelp() {
         let alert = NSAlert()
-        alert.messageText = lastError.isEmpty ? "SprintTray: OK" : "SprintTray: cannot read sprint"
+        alert.messageText = "SprintTray \(appVersion): " + (lastError.isEmpty ? "OK" : "cannot read sprint")
         var info = lastError.isEmpty ? "Current sprint: \(sprintName)" : "Problem: \(lastError)"
         if !lastError.isEmpty, let cached = loadCachedSprint() {
             info += "\nShowing the last known sprint: \(cached.name)"
