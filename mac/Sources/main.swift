@@ -5,12 +5,33 @@ import AppKit
 import ServiceManagement
 
 let bundleID = "com.dynatrace.sprinttray"
+// Set in mac/Info.plist (CFBundleShortVersionString), so the app and the plist can't drift
+let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
 
-struct Sprint: Decodable {
+struct Sprint: Codable {
     let name: String
     let state: String
     let startDate: String
     let endDate: String
+}
+
+// Last sprint that loaded, so the menu bar still shows it when acli-pii or Jira fails
+struct CachedSprint: Codable {
+    let project: String
+    let sprint: Sprint
+}
+
+func loadCachedSprint() -> Sprint? {
+    guard let data = UserDefaults.standard.data(forKey: "lastGoodSprint"),
+          let c = try? JSONDecoder().decode(CachedSprint.self, from: data),
+          c.project == Settings.project else { return nil }
+    return c.sprint
+}
+
+func saveCachedSprint(_ s: Sprint) {
+    if let data = try? JSONEncoder().encode(CachedSprint(project: Settings.project, sprint: s)) {
+        UserDefaults.standard.set(data, forKey: "lastGoodSprint")
+    }
 }
 
 enum SprintError: LocalizedError {
@@ -47,7 +68,7 @@ enum Settings {
     static var project: String { UserDefaults.standard.string(forKey: "project") ?? "APPOBS" }
     static var refreshMinutes: Double {
         let v = UserDefaults.standard.double(forKey: "refreshMinutes")
-        return v > 0 ? v : 60
+        return v > 0 ? v : 1440
     }
 }
 
@@ -78,10 +99,17 @@ func fetchActiveSprint() throws -> Sprint {
     p.standardOutput = out
     p.standardError = err
     try p.run()
+    // A hung acli-pii must not block the refresh forever; terminating it closes the pipes below
+    let watchdog = DispatchWorkItem { if p.isRunning { p.terminate() } }
+    DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: watchdog)
     let outData = out.fileHandleForReading.readDataToEndOfFile()
     let errData = err.fileHandleForReading.readDataToEndOfFile()
     p.waitUntilExit()
+    watchdog.cancel()
 
+    if p.terminationReason == .uncaughtSignal {
+        throw SprintError.acliFailed("timed out (no answer from Jira within 60 s)")
+    }
     if p.terminationStatus != 0 {
         var msg = String(decoding: errData, as: UTF8.self)
             .unicodeScalars.filter { $0.isASCII && $0.value >= 0x20 }.map(String.init).joined()
@@ -149,6 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .filter { $0 != NSRunningApplication.current }
         if !others.isEmpty { NSApp.terminate(nil); return }
 
+        // Greyed-out header so the running version is visible without opening Help
+        let versionItem = NSMenuItem(title: "SprintTray \(appVersion)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+        menu.addItem(.separator())
         infoItem.isEnabled = false
         menu.addItem(infoItem)
         menu.addItem(.separator())
@@ -178,30 +211,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func apply(_ result: Result<Sprint, Error>) {
         switch result {
         case .success(let s):
-            sprintName = s.name
+            saveCachedSprint(s)
             lastError = ""
-            let num = s.name.range(of: #"\d+(?=\D*$)"#, options: .regularExpression).map { String(s.name[$0]) } ?? "S"
-            let start = parseDate(s.startDate) ?? Date(), end = parseDate(s.endDate) ?? Date()
-            let total = end.timeIntervalSince(start)
-            let progress = total > 0 ? min(1, max(0, Date().timeIntervalSince(start) / total)) : 0
-            let days = Int(ceil(end.timeIntervalSinceNow / 86400))
-            let df = DateFormatter()
-            df.dateFormat = "EEE dd.MM."
-            let tip = "\(s.name) - ends \(df.string(from: end)) (\(days) d left, \(Int(progress * 100))%)"
-            statusItem.button?.image = makeIcon(text: num, color: textColor, progress: progress)
-            statusItem.button?.toolTip = tip
-            infoItem.title = tip
+            show(s, stale: false)
         case .failure(let error):
             let text = error.localizedDescription
-            statusItem.button?.image = makeIcon(text: "?", color: .systemRed, progress: nil)
-            statusItem.button?.toolTip = "Sprint: \(text)"
-            infoItem.title = "⚠︎ \(text)"
+            if let cached = loadCachedSprint() {
+                // Keep the last sprint that loaded; the progress still moves with the clock
+                show(cached, stale: true)
+            } else {
+                statusItem.button?.image = makeIcon(text: "?", color: .systemRed, progress: nil)
+                statusItem.button?.toolTip = "Sprint: \(text)"
+                infoItem.title = "⚠︎ \(text)"
+            }
             // Show the help once per distinct problem
             if text != lastError {
                 lastError = text
                 showHelp()
             }
         }
+    }
+
+    func show(_ s: Sprint, stale: Bool) {
+        sprintName = s.name
+        let num = s.name.range(of: #"\d+(?=\D*$)"#, options: .regularExpression).map { String(s.name[$0]) } ?? "S"
+        let start = parseDate(s.startDate) ?? Date(), end = parseDate(s.endDate) ?? Date()
+        let total = end.timeIntervalSince(start)
+        let progress = total > 0 ? min(1, max(0, Date().timeIntervalSince(start) / total)) : 0
+        let days = Int(ceil(end.timeIntervalSinceNow / 86400))
+        let df = DateFormatter()
+        df.dateFormat = "EEE dd.MM."
+        let label = stale ? "\(s.name) (cached)" : s.name
+        let tip = "\(label) - ends \(df.string(from: end)) (\(days) d left, \(Int(progress * 100))%)"
+        // Grey glyph marks data that is not from the latest successful call
+        let color = stale ? NSColor(red: 128 / 255, green: 128 / 255, blue: 128 / 255, alpha: 1) : textColor
+        statusItem.button?.image = makeIcon(text: num, color: color, progress: progress)
+        statusItem.button?.toolTip = tip
+        infoItem.title = tip
     }
 
     @objc func copyName() {
@@ -212,9 +258,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showHelp() {
         let alert = NSAlert()
-        alert.messageText = lastError.isEmpty ? "SprintTray: OK" : "SprintTray: cannot read sprint"
-        alert.informativeText = (lastError.isEmpty ? "Current sprint: \(sprintName)" : "Problem: \(lastError)")
-            + "\n\n" + setupHelp
+        alert.messageText = "SprintTray \(appVersion): " + (lastError.isEmpty ? "OK" : "cannot read sprint")
+        var info = lastError.isEmpty ? "Current sprint: \(sprintName)" : "Problem: \(lastError)"
+        if !lastError.isEmpty, let cached = loadCachedSprint() {
+            info += "\nShowing the last known sprint: \(cached.name)"
+        }
+        alert.informativeText = info + "\n\n" + setupHelp
         alert.alertStyle = lastError.isEmpty ? .informational : .warning
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
