@@ -61,8 +61,11 @@ There is also a macOS menu bar version in `mac/` (Swift, see `mac/README.md`, `m
 
 ```powershell
 Import-Module ps2exe   # Install-Module ps2exe -Scope CurrentUser  (once)
-Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray
+Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray -version 1.1.0
 ```
+
+Version: bump `$version` in `SprintTray.ps1` and `-version` in the build command, the README, and
+`.github/workflows/release.yml` together. Mac: `CFBundleShortVersionString` in `mac/Info.plist`.
 
 - Quit the running tray app first (right-click → Exit, or stop the process), otherwise the
   build fails with "Access to the path ... is denied".

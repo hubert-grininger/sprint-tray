@@ -3,6 +3,9 @@ param(
     [int]$RefreshMinutes = 1440
 )
 
+# Keep in sync with the -version passed to ps2exe (see CLAUDE.md, Build and test)
+$version = '1.1.0'
+
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
 # Single instance: quit if another SprintTray (script or exe) is already running
@@ -130,7 +133,7 @@ function Show-Help {
         $cached = if ($script:lastGood) { "Showing the last known sprint: $($script:lastGood.name)`n`n" } else { '' }
         "Current problem:`n$($script:lastError)`n`n$cached"
     } else { "Status: OK ($($script:sprintName))`n`n" }
-    [System.Windows.Forms.MessageBox]::Show($status + $setupHelp, 'SprintTray', 'OK',
+    [System.Windows.Forms.MessageBox]::Show($status + $setupHelp, "SprintTray $version", 'OK',
         $(if ($script:lastError) { 'Warning' } else { 'Information' })) | Out-Null
 }
 
@@ -201,6 +204,8 @@ function Set-AutoStart([bool]$on) {
 }
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
+# Greyed-out header so the running version is visible without opening Help
+$menu.Items.Add("SprintTray $version").Enabled = $false
 $menu.Items.Add('Refresh', $null, { Update-Tray }) | Out-Null
 $menu.Items.Add('Copy sprint name', $null, {
     if ($script:sprintName) { [System.Windows.Forms.Clipboard]::SetText($script:sprintName) }
