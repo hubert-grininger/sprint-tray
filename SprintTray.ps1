@@ -6,7 +6,7 @@ param(
 )
 
 # Keep in sync with the -version passed to ps2exe (see CLAUDE.md, Build and test)
-$version = '1.1.0'
+$version = '1.2.0'
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
