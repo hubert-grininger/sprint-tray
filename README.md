@@ -36,10 +36,12 @@ to keep it visible.
 Options:
 
 ```
-SprintTray.exe -Project APPOBS -RefreshMinutes 1440
+SprintTray.exe -Project APPOBS -RefreshMinutes 1440 -SprintName '^Dev Sprint \d+'
 ```
 
-Defaults: project `APPOBS`, refresh once a day (1440 minutes). Right-click → Refresh any time.
+Defaults: project `APPOBS`, refresh once a day (1440 minutes), sprint name `^Dev Sprint \d+`.
+Other teams' sprints can contain issues of the same project; `-SprintName '<regex>'` picks your team's
+sprints (falls back to any `Sprint <n>` when nothing matches). Right-click → Refresh any time.
 
 ## Autostart
 
