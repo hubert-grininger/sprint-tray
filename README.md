@@ -65,7 +65,7 @@ has ever loaded on this PC.
 
 ```powershell
 Install-Module ps2exe -Scope CurrentUser
-Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray -version 1.1.0
+Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray -version 1.2.0
 ```
 
 The script can also be run directly without building: `SprintTray.vbs`.

@@ -61,7 +61,7 @@ There is also a macOS menu bar version in `mac/` (Swift, see `mac/README.md`, `m
 
 ```powershell
 Import-Module ps2exe   # Install-Module ps2exe -Scope CurrentUser  (once)
-Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray -version 1.1.0
+Invoke-ps2exe -inputFile SprintTray.ps1 -outputFile SprintTray.exe -noConsole -STA -title SprintTray -version 1.2.0
 ```
 
 Version: bump `$version` in `SprintTray.ps1` and `-version` in the build command, the README, and
