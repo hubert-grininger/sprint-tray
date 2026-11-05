@@ -49,9 +49,11 @@ Settings (then Quit and restart SprintTray):
 ```
 defaults write com.dynatrace.sprinttray project XYZ
 defaults write com.dynatrace.sprinttray refreshMinutes 30
+defaults write com.dynatrace.sprinttray sprintName '^Dev Sprint \d+'
 ```
 
-Defaults: project `APPOBS`, refresh once a day (1440 minutes).
+Defaults: project `APPOBS`, refresh once a day (1440 minutes), sprint name `^Dev Sprint \d+`
+(a regex; other teams' sprints can contain issues of the same project).
 
 If a refresh fails, the menu bar keeps showing the last sprint that loaded, in grey, with
 "(cached)" in the tooltip. A red **?** only appears when no sprint has ever loaded on this Mac.

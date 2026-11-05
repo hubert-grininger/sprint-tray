@@ -1,5 +1,7 @@
 param(
     [string]$Project = 'APPOBS',
+    # Regex for the team's sprint names; other teams' sprints can hold the same project's issues
+    [string]$SprintName = '^Dev Sprint \d+',
     [int]$RefreshMinutes = 1440
 )
 
@@ -56,8 +58,9 @@ function Get-ActiveSprint {
 
     # ForEach-Object unrolls the array (Windows PowerShell 5.1 emits it as one object)
     $sprints = @($out | ConvertFrom-Json | ForEach-Object { $_ })
-    # Prefer real sprints ("... Sprint 351") over long-running planning buckets
-    $candidates = @($sprints | Where-Object { $_.name -match 'Sprint\s*\d+' })
+    # Prefer the team's own sprints, then any real sprint ("... Sprint 351") over planning buckets
+    $candidates = @($sprints | Where-Object { $_.name -match $SprintName })
+    if (-not $candidates) { $candidates = @($sprints | Where-Object { $_.name -match 'Sprint\s*\d+' }) }
     if (-not $candidates) { $candidates = $sprints }
     if (-not $candidates) { throw "No active sprint in $Project" }
     $candidates | Sort-Object { [datetime]$_.startDate } -Descending | Select-Object -First 1
@@ -124,7 +127,7 @@ function New-TextIcon([string]$text, [System.Drawing.Color]$color, [double]$prog
 
 $tray = New-Object System.Windows.Forms.NotifyIcon
 $tray.Visible = $true
-$script:sprintName = ''
+$script:currentSprintName = ''
 $script:lastError = ''
 $script:lastGood = $null
 
@@ -132,7 +135,7 @@ function Show-Help {
     $status = if ($script:lastError) {
         $cached = if ($script:lastGood) { "Showing the last known sprint: $($script:lastGood.name)`n`n" } else { '' }
         "Current problem:`n$($script:lastError)`n`n$cached"
-    } else { "Status: OK ($($script:sprintName))`n`n" }
+    } else { "Status: OK ($($script:currentSprintName))`n`n" }
     [System.Windows.Forms.MessageBox]::Show($status + $setupHelp, "SprintTray $version", 'OK',
         $(if ($script:lastError) { 'Warning' } else { 'Information' })) | Out-Null
 }
@@ -163,7 +166,7 @@ function Update-Tray {
     try {
         if (-not $s) { throw $script:lastError }
         $stale = [bool]$script:lastError
-        $script:sprintName = $s.name
+        $script:currentSprintName = $s.name
         $num = if ($s.name -match '(\d+)\D*$') { $Matches[1] } else { 'S' }
         $start = ([datetime]$s.startDate).ToLocalTime()
         $end = ([datetime]$s.endDate).ToLocalTime()
@@ -208,7 +211,7 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.Items.Add("SprintTray $version").Enabled = $false
 $menu.Items.Add('Refresh', $null, { Update-Tray }) | Out-Null
 $menu.Items.Add('Copy sprint name', $null, {
-    if ($script:sprintName) { [System.Windows.Forms.Clipboard]::SetText($script:sprintName) }
+    if ($script:currentSprintName) { [System.Windows.Forms.Clipboard]::SetText($script:currentSprintName) }
 }) | Out-Null
 $menu.Items.Add('Help / status', $null, { Show-Help }) | Out-Null
 $autoItem = New-Object System.Windows.Forms.ToolStripMenuItem 'Start with Windows'

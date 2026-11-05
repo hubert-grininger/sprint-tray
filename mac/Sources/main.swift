@@ -66,6 +66,9 @@ Change the project:
 enum Settings {
     // Configure with: defaults write com.dynatrace.sprinttray project XYZ
     static var project: String { UserDefaults.standard.string(forKey: "project") ?? "APPOBS" }
+    // Regex for the team's sprint names; other teams' sprints can hold the same project's issues.
+    // Configure with: defaults write com.dynatrace.sprinttray sprintName '^Dev Sprint \d+'
+    static var sprintName: String { UserDefaults.standard.string(forKey: "sprintName") ?? #"^Dev Sprint \d+"# }
     static var refreshMinutes: Double {
         let v = UserDefaults.standard.double(forKey: "refreshMinutes")
         return v > 0 ? v : 1440
@@ -121,8 +124,9 @@ func fetchActiveSprint() throws -> Sprint {
     }
 
     let sprints = try JSONDecoder().decode([Sprint].self, from: outData)
-    // Prefer real sprints ("... Sprint 351") over long-running planning buckets
-    var candidates = sprints.filter { $0.name.range(of: #"Sprint\s*\d+"#, options: .regularExpression) != nil }
+    // Prefer the team's own sprints, then any real sprint ("... Sprint 351") over planning buckets
+    var candidates = sprints.filter { $0.name.range(of: Settings.sprintName, options: .regularExpression) != nil }
+    if candidates.isEmpty { candidates = sprints.filter { $0.name.range(of: #"Sprint\s*\d+"#, options: .regularExpression) != nil } }
     if candidates.isEmpty { candidates = sprints }
     guard let sprint = candidates.max(by: {
         (parseDate($0.startDate) ?? .distantPast) < (parseDate($1.startDate) ?? .distantPast)
